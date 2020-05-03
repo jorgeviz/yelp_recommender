@@ -37,7 +37,6 @@ from pathlib import Path
 from collections import OrderedDict, Counter
 from operator import add
 from pyspark import SparkContext, SparkConf
-from lsh import lsh
 
 # Params
 MIN_COS_SIM = 0.01

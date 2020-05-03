@@ -123,12 +123,14 @@ def load_model(mdl_file):
 def find_similarity(data, biz, users):
     """ Find cosine similarity over provided data
     """
+    def _sim(x,y):
+        # similarity with cold start = 0
+        if (x and y):
+            return cosine_similarity(x, y)
+        return 0
     sim_data = data.map(lambda x: (x['user_id'], x['business_id']))\
                 .map(lambda x: (x[0], x[1], users.get(x[0], []), biz.get(x[1], [])) )\
-                .filter(lambda x: (x[2] and x[3]) )\
-                .map(lambda x: (x[0], x[1],
-                    cosine_similarity(x[2],x[3])
-                    ))
+                .map(lambda x: (x[0], x[1], 5*_sim(x[2],x[3])) )
     return sim_data 
     
 
@@ -150,7 +152,7 @@ if __name__ == "__main__":
         for pv in pred_vals:
             of.write(json.dumps({
                 "user_id": pv[0], "business_id": pv[1],
-                "sim": pv[2]
+                "stars": pv[2]
             })+"\n")
     log("Finished Task 2 [PREDICT], Saved Predictions!")
     
