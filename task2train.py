@@ -1,6 +1,9 @@
 """ INF 553 Assignment 3
     Task 2: Content Based Recommendation System [TRAIN]
 
+    Execution:
+    python task2train.py ../../data/project/train_review.json contentRS.model ../../data/project/stopwords
+
     In this task, you will build a content-based recommendation system by generating 
     profiles from review texts for users and businesses in the train review set. 
     Then you will use the system/model to predict if a user prefers to review 
@@ -42,8 +45,8 @@ from pyspark import SparkContext, SparkConf
 MIN_COS_SIM = 0.01
 RARE_WORDS_PERC = 0.0001
 TOP_TFIDF = 200
-LSH_BANDS = 200
-LSH_ROWS = TOP_TFIDF // LSH_BANDS
+# LSH_BANDS = 200
+# LSH_ROWS = TOP_TFIDF // LSH_BANDS
 MAX_PART_SIZE = 10 * (1024**2)
 
 # Aux vars
@@ -79,8 +82,8 @@ def create_spark():
         sc : pyspark.SparkContext
     """
     conf = SparkConf()\
-        .setAppName("Task1")\
-        .setMaster("local")\
+        .setAppName("Task2")\
+        .setMaster("local[3]")\
         .set("spark.executor.memory","4g")\
         .set("spark.driver.cores", "2")\
         .set("spark.driver.memory", "2g")

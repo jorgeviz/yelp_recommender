@@ -1,5 +1,9 @@
 """ INF 553 Assignment 3
-    Task 3: Colaborative Filtering Recommendation System [TRAIN]
+    Task 3: Collaborative Filtering Recommendation System [PREDICT]
+
+    Execution:
+    python task3predict.py ../../data/project/train_review.json ../../data/project/test_review_ratings.json userCFRS.model userCFRS.preds  user_based
+    python task3predict.py ../../data/project/train_review.json ../../data/project/test_review_ratings.json itemCFRS.model itemCFRS.preds  item_based
 
     In this task, you will build collaborative filtering recommendation systems 
     with train reviews and use the models to predict the ratings for a pair of user 
@@ -116,8 +120,8 @@ def load_model(sc, mdl_file, cf_):
     """
     mdl_ = read_json(sc, mdl_file)
     if cf_ == "item_based":
-        return mdl_.map(lambda x: (x["b1"], x['b2'], x['sim']))
-    return mdl_.map(lambda x: (x["u1"], x['u2'], x['sim']))
+        return mdl_.map(lambda x: (x["b1"], x['b2'], x['stars']))
+    return mdl_.map(lambda x: (x["u1"], x['u2'], x['stars']))
 
 # ------------ Item Based CF ------------------------
 def infer_item_based_cf(model, train, test):
@@ -125,46 +129,54 @@ def infer_item_based_cf(model, train, test):
         and compute rating
     """
     # build access index
-    it_idx_one = build_itemb_idxs(model)
-    # get k-NN from business (b, (u, k-ratings))
+    it_idx_one = build_itemb_idxs(model).collectAsMap()
+    def _get_neighs(b):
+        if b in it_idx_one:
+            return sorted(it_idx_one[b].items(), 
+                            key=lambda y: y[1], 
+                            reverse=True)[:N_NEIGHS]
+        else:
+            return []
+    # get k-NN from business (u, (b, k-ratings))
     d_neighs = test.map(lambda x: (x['business_id'], x['user_id']) )\
-                    .join(it_idx_one)\
-                    .mapValues(lambda x: (
-                        x[0], 
-                        sorted(x[1].items(), 
-                                key=lambda y: y[1], 
-                                reverse=True)[:N_NEIGHS]
-                    ))\
-                    .map(lambda x: (x[1][0], (x[0], x[1][1]) ))
+                    .map(lambda x: (
+                        x[1], (
+                            x[0], 
+                            _get_neighs(x[0])
+                        )
+                    ))
     # Get users cache
-    test_users = set(test.map(lambda x: x['user_id'])\
-                    .distinct().collect())
+    test_users = set(d_neighs.map(lambda x: x[0])\
+                     .distinct().collect())
     users_ratings = train.map(lambda x: (x['user_id'], (x['business_id'], x['stars'] )) )\
                         .groupByKey()\
                         .filter(lambda x: x[0] in test_users)\
-                        .mapValues(dict)
+                        .mapValues(dict).collectAsMap()
     # compute prediction score (user, biz, score)
     def get_score(u_rates, neighs):
         num_, den_ = 0, 0
         for n,nv in neighs:
-            num_ += u_rates.get(n,0)*nv
-            den_ += abs(nv)
+            if n in u_rates:
+                num_ += u_rates[n]*nv
+                den_ += abs(nv)
         if den_ == 0:
             return 0
         return num_ / den_
-    scores = d_neighs.join(users_ratings)\
+    scores = d_neighs\
                 .map(lambda x: (
                     x[0], 
-                    x[1][0][0], 
-                    get_score(x[1][1], x[1][0][1] )) 
+                    x[1][0], 
+                    get_score(users_ratings.get(x[0],{}), x[1][1] )) 
                 )
-    return scores.collect()
+    _scores = scores.collect()
+    log("Scores detected:", len(_scores))
+    return _scores
 
 def build_itemb_idxs(data):
     """ Build fast access idx for similarity
     """
     _left = data.map(lambda x: (x[0], (x[1], x[2])) )
-    _right = data.map(lambda x: (x[1], (x[2], x[2])) )
+    _right = data.map(lambda x: (x[1], (x[0], x[2])) )
     # union
     ib_idx = _left.union(_right)\
                 .groupByKey()\
@@ -176,63 +188,52 @@ def build_itemb_idxs(data):
 
 # ------------ User Based CF ------------------------
 def infer_user_based_cf(model, train, test):
-    """ Get user raters from business,
-        and compute score
-    """
-    # build business cache
-    test_biz = set(test.map(lambda x: x['business_id'])\
-                    .distinct().collect())
-    def _mean(x):
-        return sum(x) / len(x)
+    """ Infer user CF Vanilla
+    """ 
+    from statistics import mean
+    from collections import namedtuple
+    # Users' mean ratings - (user, mean_rating)
+    mean_user_ratings = train.map(lambda x: (x['user_id'],x['stars']))\
+                            .groupByKey()\
+                            .mapValues(mean).collectAsMap()
+    # Format Hash table of user weights - ((user1, user2), sim)
+    users_weights = model.flatMap(lambda x: [
+                            ((x[0], x[1]), x[2]),
+                            ((x[1], x[0]), x[2])
+                        ]).collectAsMap()
+    # User neighbors - (u, {u1,u2})
+    user_neighs = model\
+            .flatMap(lambda x: [
+                    (x[0], x[1]),
+                    (x[1], x[0])])\
+            .groupByKey()\
+            .mapValues(set).collectAsMap()
+    # rating's index by business
     biz_ratings = train.map(lambda x: (x['business_id'], (x['user_id'], x['stars'] )) )\
-                        .groupByKey()\
-                        .filter(lambda x: x[0] in test_biz)
-    biz_ratings.cache()
-    # compute raters means
-    raters_ = set(biz_ratings
-                .flatMapValues(lambda x: [j[0] for j in x])\
-                .distinct().collect())
-    # get users and users' weights
-    users_idx = build_userb_idxs(model)
-    users_ = set(users_idx.keys().collect())
-    all_users = users_.union(raters_)
-    # get means
-    means_usrs = dict(train.map(lambda x: (x['user_id'], x['stars'] ))\
-                .filter(lambda x: x[0] in all_users)\
-                .groupByKey()
-                .mapValues(_mean).collect())
-    del raters_, users_, all_users
-    # join rdds -- (user, (biz, raters))
-    d_tests = test.map(lambda x: (x['business_id'], x['user_id']) )\
-                .join(biz_ratings)\
-                .map(lambda x: (x[1][0], (x[0], x[1][1])) )
-    def get_score(raters, iidx, usr_avg):
-        num_, den_ = 0, 0
-        for rt, rtv in raters:
-            num_ += iidx.get(rt, 0) * (rtv  - means_usrs.get(rt, 0))
-            den_ += abs(iidx.get(rt, 0))
-        if den_ == 0:
+                        .groupByKey().mapValues(dict)\
+                        .collectAsMap()
+    # get predictions
+    def _get_score(u, neighs, rates):
+        num_, den_ = [], []
+        for n in neighs:
+            if n in rates:
+                w = users_weights[(u,n)]
+                ra_i = rates[n]
+                _ra = mean_user_ratings.get(n, 0)
+                num_.append(w*(ra_i-_ra))
+                den_.append(abs(w))
+        if len(den_) == 0 or sum(den_) == 0:
             return 0
-        return usr_avg + (num_ / den_)
-    # -- (user, ((biz, raters), idx))
-    scores = d_tests.join(users_idx)\
-                    .map(lambda x: (
-                        x[0], x[1][0][0],
-                        get_score(x[1][0][1], x[1][1], means_usrs.get(x[0],0) )
-                    ))
-    return scores.collect()
+        return mean_user_ratings.get(u, 0) + (sum(num_)/sum(den_))
 
-def build_userb_idxs(data):
-    """ Build fast access idx for similarity
-    """
-    _left = data.map(lambda x: (x[0], (x[1], x[2])) )
-    _right = data.map(lambda x: (x[1], (x[2], x[2])) )
-    # union
-    ib_idx = _left.union(_right)\
-                .groupByKey()\
-                .mapValues(dict)
-    ib_idx.cache()
-    return ib_idx
+    Rating = namedtuple("Rating", ("user", "biz"))
+    preds = test.map(lambda x: Rating(x['user_id'], x['business_id']))\
+                .map(lambda x: (
+                    x.user, x.biz,
+                    _get_score(x.user, user_neighs.get(x.user, set()), biz_ratings.get(x.biz, {}))
+                ))
+    _preds = preds.collect()
+    return _preds
 
 # ------------ End user Based CF ------------------------
     
@@ -258,7 +259,7 @@ if __name__ == "__main__":
         for pv in predictions:
             of.write(json.dumps({
                 "user_id": pv[0], "business_id": pv[1],
-                "sim": pv[2]
+                "stars": pv[2]
             })+"\n")
     log("Finished Task 3 [PREDICT], Saved Predictions!")
     

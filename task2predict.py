@@ -1,6 +1,9 @@
 """ INF 553 Assignment 3
     Task 2: Content Based Recommendation System [PREDICT]
 
+    Execution:
+    python task2predict.py ../../data/project/test_review_ratings.json contentRS.model contentRS.preds
+
     In this task, you will build a content-based recommendation system by generating 
     profiles from review texts for users and businesses in the train review set. 
     Then you will use the system/model to predict if a user prefers to review 

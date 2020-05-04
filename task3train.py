@@ -1,5 +1,9 @@
 """ INF 553 Assignment 3
-    Task 3: Colaborative Filtering Recommendation System [TRAIN]
+    Task 3: Collaborative Filtering Recommendation System [TRAIN]
+
+    Execution:
+    python task3train.py ../../data/project/test_review_ratings.json userCFRS.model user_based
+    python task3train.py ../../data/project/test_review_ratings.json itemCFRS.model item_based
 
     In this task, you will build collaborative filtering recommendation systems 
     with train reviews and use the models to predict the ratings for a pair of user 
@@ -37,6 +41,8 @@ from pyspark import SparkContext, SparkConf
 from minhash import minhash
 from lsh import lsh, filter_valid
 from utils import pearson_correlation
+from collections import namedtuple
+import ipdb
 
 # Debugger
 # import ipdb
@@ -49,8 +55,8 @@ LSH_BANDS = 256
 LSH_ROWS = N_SIGNATURES // LSH_BANDS
 MIN_JACC_SIM = 0.01
 MAX_PART_SIZE = 10 * (1024**2)
-# Item-based CG vars
-MIN_CO_RATED = 3
+# Minimum number of Co-rated businesses to consider similar
+MIN_CO_RATED = 2
 
 
 def fetch_arg(_pos):
@@ -79,8 +85,8 @@ def create_spark():
         sc : pyspark.SparkContext
     """
     conf = SparkConf()\
-        .setAppName("Task1")\
-        .setMaster("local")\
+        .setAppName("Task3")\
+        .setMaster("local[3]")\
         .set("spark.executor.memory","4g")\
         .set("spark.driver.cores", "3")\
         .set("spark.driver.memory", "3g")
@@ -134,12 +140,12 @@ def compute_w_log(msg, fn):
 def get_biz_ratings(data):
     """ Get business ratings 
     """
+    log("Incoming business", data.map(lambda x: x['business_id']).distinct().count())
     biz_ratings = data\
         .map(lambda x: (x['business_id'], (x['user_id'], x['stars'])))\
-        .groupByKey()\
-        .filter(lambda x: len(x[1]) >= MIN_CO_RATED)
+        .groupByKey()
     biz_ratings.cache()
-    compute_w_log("Biz ratings:", biz_ratings.count)
+    #compute_w_log("Biz ratings:", biz_ratings.count)
     return biz_ratings, biz_ratings.sortByKey().keys()
 
 def get_joined_biz_candidates(biz_data, biz_candids):
@@ -152,26 +158,30 @@ def get_joined_biz_candidates(biz_data, biz_candids):
 
         (business_id1, business_id2, (val1, ...), (val2,...))
     """
-    # join columns using cache
-    biz_cache = dict(biz_data.collect())
+    # join columns using cache of unique users
+    BCache = namedtuple('BCache', ('set', 'dict'))
+    biz_cache = biz_data\
+        .mapValues(lambda x: BCache(set([j[0] for j in x]), dict(x)) )\
+        .collectAsMap()
     joined_cands = biz_candids.map(lambda x: (
-            (x[0], x[1]), (biz_cache[x[0]], biz_cache[x[1]])
+            (x[0], x[1]), (biz_cache[x[0]].set, biz_cache[x[1]].set)
         ) 
     )
-    # compute_w_log("Joined Cache 1:", joined_cands.count)
+    # filter the ones with less than Min Co-rated
+    joined_cands = joined_cands\
+        .mapValues(lambda v: v[0].intersection(v[1]))\
+        .filter(lambda s: s[1].__len__() >= MIN_CO_RATED)
+    compute_w_log("Joined Filtered:", joined_cands.count)
     # compute intersection
     def get_ratings_inters(x):
-        v1, v2 = x; inters = {}
-        v1 = dict(v1); v2 = dict(v2)
-        for _k, _v1 in v1.items():
-            if _k in v2:
-                inters[_k] = (_v1, v2[_k])
-        return v1, v2, inters
+        (b1, b2), inters = x
+        return {_k: (biz_cache[b1].dict[_k], biz_cache[b2].dict[_k])\
+                for _k in inters}
 
-    joined_cands = joined_cands\
-            .map(lambda x: (x[0], get_ratings_inters(x[1])))
-    compute_w_log("Intersection Candidates", joined_cands.count)
-    return joined_cands
+    filtered_cands = joined_cands\
+            .map(lambda x: (x[0], get_ratings_inters(x)) )
+    compute_w_log("Intersection Candidates", filtered_cands.count)
+    return filtered_cands
 
 def get_item_based_cf(data):
     """ Get similar business pairs 
@@ -182,17 +192,17 @@ def get_item_based_cf(data):
     # Generate candidates
     biz_candids = biz_keys.cartesian(biz_keys)\
                     .filter(lambda x: x[0] < x[1])
-    compute_w_log("Candidates", biz_candids.count)
+    #compute_w_log("Candidates", biz_candids.count)
     # Generate joined canddates rdd 
-    biz_joined = get_joined_biz_candidates(biz_rdd, biz_candids)
+    biz_filtered = get_joined_biz_candidates(biz_rdd, biz_candids)
     # filter non-min co-rated pairs
-    biz_filtered = biz_joined\
-            .filter(lambda x: x[1][2].__len__() >= MIN_CO_RATED)
+    # biz_filtered = biz_joined\
+    #         .filter(lambda x: x[1][2].__len__() >= MIN_CO_RATED)
     biz_filtered.cache()
     compute_w_log("Filtered possible Cands", biz_filtered.count)
     # Compute Pearson Correlation
     biz_corr = biz_filtered\
-            .map(lambda x: (x[0], pearson_correlation(x[1][2])))
+            .map(lambda x: (x[0], pearson_correlation(x[1])))
     compute_w_log("Candidates Corr", biz_corr.count)
     return biz_corr.collect()
 
@@ -328,7 +338,7 @@ if __name__ == "__main__":
             mdl.write(json.dumps({
                 k[0]: v[0][0],
                 k[1]: v[0][1],
-                "sim": v[1]
+                "stars": v[1]
             })+"\n")
     log("Finished Task 3 [TRAIN], Saved Model!")
     log("Job duration: ", time.time()-st_time)
