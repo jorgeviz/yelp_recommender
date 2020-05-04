@@ -1,0 +1,9 @@
+{
+    "class": "BaseModel",
+    "training_data": "../../data/project/train_review.json",
+    "mdl_file": "weights/base.model",
+    "hp_params": {
+        "TOP_TFIDF": 200,
+        "RARE_WORDS_PERC": 0.0001
+    }
+}
