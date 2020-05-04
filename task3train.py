@@ -204,7 +204,9 @@ def get_item_based_cf(data):
     biz_corr = biz_filtered\
             .map(lambda x: (x[0], pearson_correlation(x[1])))
     compute_w_log("Candidates Corr", biz_corr.count)
-    return biz_corr.collect()
+    _biz_correls =  biz_corr.collect()
+    log("Candidates Pairs:", len(_biz_correls))
+    return _biz_correls
 
 # ------------ End of Item Based CF -----------------
 
