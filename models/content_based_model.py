@@ -119,8 +119,8 @@ class ContentBasedModel(BaseModel):
         doc_freq = mapped.mapValues(len)
         return doc_freq.collectAsMap()
 
-    def get_onehot_tfidf(self, data, doc_fq):
-        """ Compute One-hot TF-IDF vectors
+    def get_tfidf(self, data, doc_fq):
+        """ Compute TF-IDF vectors
             
             Params:
             -----
@@ -133,7 +133,7 @@ class ContentBasedModel(BaseModel):
             -----
             (tfidf, top_k, top_idx): (pyspark.rdd, OrderedDict, dict)
                 tfidf: [(k, {w:(tf,df, tf-idf),..}), ...]
-                top_k: {}
+                top_k: {k: tf-idf, k2:tf-idf, ...}
         """ 
         N = self.num_revs
         # TF  (biz_id, {t1: 3, t2: 4})
@@ -156,7 +156,6 @@ class ContentBasedModel(BaseModel):
                 d[term] = (v, _df, v * math.log(N/_df, 2))
             return (k, d)
         tfidf = tfq.map(_tfidf)
-        # [TODO] ---- change the way most common terms are selected
         # Get most recent elements, top terms {t1: 23.4, t2:6.4} 
         top_terms = tfidf.flatMap(lambda x: [(_k, _j)  for _k, _j in x[1].items()])\
                         .filter(lambda x: x[1][1] > 1)\
@@ -168,7 +167,7 @@ class ContentBasedModel(BaseModel):
                 .sortBy(lambda x: x[1], ascending=False)\
                 .take(self.topk_tfidf)
         )
-        # [TODO] ---- change the way to construct pos index
+        # - pos index
         top_idx = {_ky:_i for _i,_ky in enumerate(top_terms)}
         log("Got Top Terms")
         return tfidf, top_terms, top_idx
@@ -184,7 +183,7 @@ class ContentBasedModel(BaseModel):
             _df = self._sc.broadcast(CBM.get_DF(parsed))
             log("Document term frequecy:")
             pprint(list(_df.value.items())[:10])
-            return parsed, self.get_onehot_tfidf(parsed.mapValues(list), _df)
+            return parsed, self.get_tfidf(parsed.mapValues(list), _df)
         return None, None, None, None
 
     def get_onehot_profile(self, feats, top_idx):
@@ -233,34 +232,36 @@ class ContentBasedModel(BaseModel):
             return self.get_onehot_profile(feats, top_idx)
         return None
 
-    def build_profiles(self, data, top_idx, ftype):
+    def build_profiles(self, data, tfidf, top_idx, ftype):
         """ Build User and Item profiles
 
             Params:
             -----
             data: pyspark.rdd
                 Parsed data [((b,u), [text]),  ...]
+            tdidf: pyspark.rdd
+                TF-IDF [((b,u), {w:(tf,df, tfidf), ...}), ...]
             top_idx: dict
                 Position Index for top terms
             ftype: str
                 Feature type
         """
-        biz_revs = CBM.get_revs(data, 'biz')
-        user_revs = CBM.get_revs(data, 'user')
+        biz_revs = CBM.get_revs(data, 'biz')\
+                    .flatMapValues(lambda x: x)\
+                    .flatMapValues(lambda x: x)\
+                    .groupByKey()
+        user_revs = CBM.get_revs(data, 'user')\
+                    .flatMapValues(lambda x: x)\
+                    .flatMapValues(lambda x: x)\
+                    .groupByKey()
         if ftype == 'onehot':
             biz_prof = self._get_profile(
-                biz_revs.flatMapValues(lambda x: x)\
-                    .flatMapValues(lambda x: x)\
-                    .groupByKey()\
-                    .mapValues(set),
-                top_idx, ftype)
+                                biz_revs.mapValues(set),
+                                top_idx, ftype)
             user_prof = self._get_profile(
-                user_revs.flatMapValues(lambda x: x)\
-                    .flatMapValues(lambda x: x)\
-                    .groupByKey()\
-                    .mapValues(set),
-                top_idx, ftype)
-        else:
+                            user_revs.mapValues(set),
+                            top_idx, ftype)
+        else: # Continuous tf-idf
             return None, None
         return biz_prof, user_prof
 
@@ -328,7 +329,7 @@ class ContentBasedModel(BaseModel):
         """
         user_avg, biz_avg = self.compute_avgs(data)
         parsed, (tfidf, top_terms, top_idx) = self.featurize(data, self.feat_type)
-        biz_prof, user_prof = self.build_profiles(parsed, top_idx, self.feat_type)
+        biz_prof, user_prof = self.build_profiles(parsed, tfidf, top_idx, self.feat_type)
         self.save(top_terms, top_idx, biz_prof, user_prof, biz_avg, user_avg)
         log(f"Model correctly saved at {self.cfg['mdl_file']}")
 
