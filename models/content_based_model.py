@@ -4,7 +4,7 @@ import json
 from pprint import pprint
 import math
 from models.base_model import BaseModel
-from utils.misc import log
+from utils.misc import log, debug
 from utils.metrics import mean, cosine_similarity
 from scipy.stats import pearsonr
 from collections import OrderedDict, Counter
@@ -175,7 +175,7 @@ class ContentBasedModel(BaseModel):
     def featurize(self, data, ftype='onehot'):
         """ Generate TF-IDF features
         """
-        if ftype == 'onehot':
+        if ftype in ('onehot', 'continuous'):
             # format text data
             parsed = self.preprocess(data).cache()
             self.num_revs = parsed.count()
@@ -184,7 +184,7 @@ class ContentBasedModel(BaseModel):
             log("Document term frequecy:")
             pprint(list(_df.value.items())[:10])
             return parsed, self.get_tfidf(parsed.mapValues(list), _df)
-        return None, None, None, None
+        return None, (None, None, None)
 
     def get_onehot_profile(self, feats, top_idx):
         """ One-hot profile construction
@@ -210,14 +210,44 @@ class ContentBasedModel(BaseModel):
                     one_hot[top_idx[w]] = 1
             return (x[0], one_hot)
         return  feats.map(one_hot_tdf)
+    
+    def get_continuous_profile(self, feats, top_terms, top_idx):
+        """ Continuous profile construction
 
-    def _get_profile(self, feats, top_idx, ftype):
+            Params:
+            -----
+            feats: pyspark.rdd
+                [(k, [words]), ...]
+            top_terms: dict
+                Fast access TFIDF values of top-k
+            top_idx: dict
+                Position Index for top terms
+            
+            Returns:
+            -----
+            pyspark.rdd
+                [(k, [0,2.1,0,4.0,0.1]), ..]
+        """
+        _TOP_TFIDF = self.topk_tfidf
+        def _encode(x):
+            vect = [0]*_TOP_TFIDF
+            for w in x[1]:
+                if w in top_idx:
+                    vect[top_idx[w]] = top_terms[w]
+            return (x[0], vect)
+        return feats.map(_encode)
+
+    def _get_profile(self, feats, tfidf, top_terms, top_idx, ftype):
         """ Build profile based on features
 
             Params:
             -----
             feats: pyspark.rdd
                 [(k, {words}), ...]
+            tfidf: pyspark.rdd
+                TF-IDF [((b,u), {w:(tf,df, tfidf), ...}), ...]
+            top_terms: dict
+                Fast access TFIDF values of top-k
             top_idx: dict
                 Position Index for top terms
             ftype: str
@@ -230,17 +260,21 @@ class ContentBasedModel(BaseModel):
         """
         if ftype == 'onehot':
             return self.get_onehot_profile(feats, top_idx)
+        elif ftype == 'continuous':
+            return self.get_continuous_profile(feats, top_terms, top_idx)
         return None
 
-    def build_profiles(self, data, tfidf, top_idx, ftype):
+    def build_profiles(self, data, tfidf, top_terms, top_idx, ftype):
         """ Build User and Item profiles
 
             Params:
             -----
             data: pyspark.rdd
                 Parsed data [((b,u), [text]),  ...]
-            tdidf: pyspark.rdd
+            tfidf: pyspark.rdd
                 TF-IDF [((b,u), {w:(tf,df, tfidf), ...}), ...]
+            top_terms: dict
+                Fast access TFIDF values of top-k
             top_idx: dict
                 Position Index for top terms
             ftype: str
@@ -255,13 +289,16 @@ class ContentBasedModel(BaseModel):
                     .flatMapValues(lambda x: x)\
                     .groupByKey()
         if ftype == 'onehot':
-            biz_prof = self._get_profile(
-                                biz_revs.mapValues(set),
-                                top_idx, ftype)
-            user_prof = self._get_profile(
-                            user_revs.mapValues(set),
-                            top_idx, ftype)
-        else: # Continuous tf-idf
+            biz_prof = self._get_profile(biz_revs.mapValues(set),
+                                tfidf, top_terms, top_idx, ftype)
+            user_prof = self._get_profile(user_revs.mapValues(set),
+                            tfidf, top_terms, top_idx, ftype)
+        elif ftype == 'continuous':
+            biz_prof = self._get_profile(biz_revs, tfidf,
+                                top_terms, top_idx, ftype)
+            user_prof = self._get_profile(user_revs, tfidf,
+                                top_terms, top_idx, ftype)
+        else:
             return None, None
         return biz_prof, user_prof
 
@@ -329,7 +366,7 @@ class ContentBasedModel(BaseModel):
         """
         user_avg, biz_avg = self.compute_avgs(data)
         parsed, (tfidf, top_terms, top_idx) = self.featurize(data, self.feat_type)
-        biz_prof, user_prof = self.build_profiles(parsed, tfidf, top_idx, self.feat_type)
+        biz_prof, user_prof = self.build_profiles(parsed, tfidf, top_terms, top_idx, self.feat_type)
         self.save(top_terms, top_idx, biz_prof, user_prof, biz_avg, user_avg)
         log(f"Model correctly saved at {self.cfg['mdl_file']}")
 

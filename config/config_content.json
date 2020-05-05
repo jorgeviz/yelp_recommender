@@ -5,7 +5,7 @@
     "hp_params": {
         "TOP_TFIDF": 200,
         "RARE_WORDS_PERC": 0.0001,
-        "FEATURES": "onehot",
+        "FEATURES": "continuous",
         "DECISION_RULE": {
             "active": "geometric",
             "params": {

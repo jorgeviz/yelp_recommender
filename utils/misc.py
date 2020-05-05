@@ -54,3 +54,8 @@ def read_csv(sc, fpath, with_heads=False):
         .filter(lambda z: True if with_heads else filter_heads(z))\
         .map(lambda z: tuple(z[0].split(',')))
     return data
+
+def debug():
+    """ Local debug
+    """
+    import ipdb; ipdb.set_trace()
