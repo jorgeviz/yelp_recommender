@@ -23,11 +23,11 @@ def parse_predit_args():
         args[a] = args[a](fetch_arg(i + 1))
     return args
 
-def log(*msg, level="INFO"):
+def log(*msg, lvl="INFO"):
     """ Log message with visual help
     """
     print("-"*50)
-    print("[{}]".format(level), end=" ")
+    print("[{}]".format(lvl), end=" ")
     for m in msg:
         print("{}".format(m), end=" ")
     print("\n" + "-"*50)
