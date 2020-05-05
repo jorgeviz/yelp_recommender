@@ -1,3 +1,8 @@
+import os
+
+os.environ['PYSPARK_PYTHON'] = 'python3'
+os.environ['PYSPARK_DRIVER_PYTHON'] = 'python3'
+
 # -- Application vars
 APP_NAME = "YelpRecomender"
 
@@ -8,7 +13,6 @@ model_conf = "config/config_content.json"
 
 
 def validate_dirs(mcf):
-    import os
     from pathlib import Path
     mdl_f = Path(os.path.abspath(mcf))
     if not os.path.exists(mdl_f.parent):
