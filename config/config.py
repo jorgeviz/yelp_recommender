@@ -2,10 +2,10 @@
 APP_NAME = "YelpRecomender"
 
 # -- Model configurations
-# model_conf = "config_base.json"
-# model_conf = "config_content.json"
-# model_conf = "config_item_cf.json"
-model_conf = "config/config_base.json"
+# model_conf = "config/config_base.json"
+model_conf = "config/config_content.json"
+# model_conf = "config/config_item_cf.json"
+
 
 def validate_dirs(mcf):
     import os

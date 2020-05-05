@@ -1,5 +1,6 @@
 import random
 import math
+from statistics import mean
 
 
 def get_primes(n_primes, st=2):

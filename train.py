@@ -1,6 +1,7 @@
 """ Yelp Recommender training module
 """
 import sys
+import time
 
 from pyspark import SparkConf, SparkContext
 
@@ -27,12 +28,16 @@ def create_spark():
 
 if __name__ == '__main__':
     log(f"Starting {APP_NAME} training ...")
+    st_time = time.time()
     # load config
     cfg = load_conf()
+    log(f"Using {cfg['class']}")
     # create spark
     sc = create_spark()
     # Load training data
     training = read_json(sc, cfg['training_data'])
     # Init model
     model = models[cfg['class']](sc, cfg)
-    print(training.take(2))
+    # Start training
+    model.train(training)
+    log(f"Finished training in {time.time()- st_time }")

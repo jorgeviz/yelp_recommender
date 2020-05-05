@@ -1,0 +1,10 @@
+{
+    "class": "ContentBasedModel",
+    "training_data": "../../data/project/train_review.json",
+    "mdl_file": "weights/contentTFIDF200.model",
+    "hp_params": {
+        "TOP_TFIDF": 200,
+        "RARE_WORDS_PERC": 0.0001,
+        "FEATURES": "onehot"
+    }
+}
