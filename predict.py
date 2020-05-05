@@ -40,4 +40,5 @@ if __name__ == '__main__':
     # Load model  and predict
     model.load_model()
     model.predict(testing, args['output_file'])
+    # model.predict_debug(testing, args['output_file'])
     log(f"Finished predicting in {time.time() - st_time}")

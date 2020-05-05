@@ -5,6 +5,13 @@
     "hp_params": {
         "TOP_TFIDF": 200,
         "RARE_WORDS_PERC": 0.0001,
-        "FEATURES": "onehot"
+        "FEATURES": "onehot",
+        "DECISION_RULE": {
+            "active": "geometric",
+            "params": {
+                "slope": 2.0,
+                "bias": 0.75
+            }
+        }
     }
 }

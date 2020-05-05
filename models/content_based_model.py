@@ -5,7 +5,8 @@ from pprint import pprint
 import math
 from models.base_model import BaseModel
 from utils.misc import log
-from utils.metrics import cosine_similarity, mean
+from utils.metrics import mean, cosine_similarity
+from scipy.stats import pearsonr
 from collections import OrderedDict, Counter
 
 puncts = [ "(", "[", ",", ".", "!", "?", ":", ";", 
@@ -25,6 +26,9 @@ class ContentBasedModel(BaseModel):
         super().__init__(sc,cfg)
         self.topk_tfidf = self.cfg['hp_params']['TOP_TFIDF']
         self.feat_type = self.cfg['hp_params']['FEATURES']
+        # params for linear decision rule
+        self.alpha = self.cfg['hp_params']['DECISION_RULE']['params']['slope']
+        self.beta = self.cfg['hp_params']['DECISION_RULE']['params']['bias']
         # aux elements
         with open('utils/stopwords') as f:
             self.stops = f.read().split('\n')
@@ -258,7 +262,7 @@ class ContentBasedModel(BaseModel):
                 top_idx, ftype)
         else:
             return None, None
-        return biz_prof, biz_prof
+        return biz_prof, user_prof
 
     def compute_avgs(self, data):
         """ Compute Business and User Avgs
@@ -368,13 +372,19 @@ class ContentBasedModel(BaseModel):
             outfile: str
                 Path to output file
         """
-        users = self.user_prof
-        biz = self.biz_prof
-        user_avg = self.user_avg
-        biz_avg = self.biz_avg
+        users, biz = self.user_prof, self.biz_prof
+        user_avg, biz_avg = self.user_avg, self.biz_avg
+        _alpha, _beta = self.alpha, self.beta
+        _decision = self.cfg['hp_params']['DECISION_RULE']['active']
         def _sim(u_i, b_i, u, b):
             if (u and b):
-                return 5*cosine_similarity(u, b)
+                _cos = cosine_similarity([u],[b]).item()
+                if _decision == 'linear':
+                    return user_avg[u_i] + _alpha*(_cos - _beta)
+                elif _decision == 'geometric':
+                    return (_cos)*user_avg[u_i]  + (1-_cos)*biz_avg[b_i]
+                else:  # constant
+                    return 5*(1.-_cos)
             # similarity for cold start, average of the other
             if u:
                 # No business info, return avg from user
@@ -392,6 +402,45 @@ class ContentBasedModel(BaseModel):
                 of.write(json.dumps({
                     "user_id": pv[0], "business_id": pv[1],
                     "stars": pv[2]
+                })+"\n")
+    
+    def predict_debug(self, test, outfile):
+        """ Prediction method [DEBUG]
+
+            Params:
+            ----
+            test: pyspark.rdd
+                Test Review JSON RDD 
+                Format: [
+                    {'business_id':x, 'user_id':x, 'text':x}, 
+                    ...
+                ]
+            outfile: str
+                Path to output file
+        """
+        users, biz = self.user_prof, self.biz_prof
+        user_avg, biz_avg = self.user_avg, self.biz_avg
+        _alpha, _beta = self.alpha, self.beta
+        def _sim(u_i, b_i, u, b):
+            if (u and b):
+                return user_avg[u_i] + _alpha*(cosine([u],[b]).item()-_beta), 'cos'
+            # similarity for cold start, average of the other
+            if u:
+                # No business info, return avg from user
+                return user_avg[u_i], 'usr_avg'
+            elif b:
+                # No user info, return avg from business
+                return biz_avg[b_i], 'biz_avg'
+            return 2.5, 'default' # return constant
+        
+        preds_ = test.map(lambda x: (x['user_id'], x['business_id']))\
+                    .map(lambda x: (x[0], x[1], users.get(x[0], []), biz.get(x[1], [])) )\
+                    .map(lambda x: (x[0], x[1], _sim(*x)) ).collect()
+        with open(outfile, 'w') as of:
+            for pv in preds_:
+                of.write(json.dumps({
+                    "user_id": pv[0], "business_id": pv[1],
+                    "stars": pv[2][0], "decision": pv[2][1]
                 })+"\n")
 
 

@@ -1,7 +1,7 @@
 import random
 import math
 from statistics import mean
-
+from sklearn.metrics.pairwise import cosine_similarity
 
 def get_primes(n_primes, st=2):
     """ Get N prime numbers
@@ -59,15 +59,15 @@ def l2_norm(x):
     sum_sq = sum(sq_v)
     return math.sqrt(sum_sq)
 
-def cosine_similarity(vx, vy):
-    """ Cosine similarity of 2 n-dim vectors
-    """ 
-    sum_dot = sum([_x*vy[j] for j, _x in enumerate(vx)])
-    vx_norm = l2_norm(vx)
-    vy_norm = l2_norm(vx)
-    if (vy_norm*vx_norm) == 0:
-        return 0.0
-    return sum_dot / (vy_norm*vx_norm)
+# def cosine_similarity(vx, vy):
+#     """ Cosine similarity of 2 n-dim vectors
+#     """ 
+#     sum_dot = sum([_x*vy[j] for j, _x in enumerate(vx)])
+#     vx_norm = l2_norm(vx)
+#     vy_norm = l2_norm(vx)
+#     if (vy_norm*vx_norm) == 0:
+#         return 0.0
+#     return sum_dot / (vy_norm*vx_norm)
 
 def pearson_correlation(rt):
     """ Pearson correlation of 2 

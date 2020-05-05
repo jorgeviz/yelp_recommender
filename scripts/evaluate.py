@@ -84,20 +84,41 @@ def format_dsets(preds, gts):
     gt_stars = gts.map(lambda x: ((x['user_id'], x['business_id']), x['stars'])).collectAsMap()
     return pred_stars, gt_stars
 
-def compute_rmse(p_stars, gt_stars):
+def compute_rmse(p_stars, gt_stars, log_pred=True):
     """ Compute RMSE
     """
     missing = []
     _mse = 0
     for k, gt in gt_stars.items():
         pred = p_stars.get(k, None)
-        if pred is None:
+        if pred is None or str(pred) == 'nan':
             missing.append(k)
             continue
         _mse += (gt - pred)**2
-        if random.uniform(0,1) < 0.001:
+        if (random.uniform(0,1) < 0.001) and log_pred:
             log("Prediction: ", pred, "GT:", gt)
+    if (len(gt_stars)-len(missing)) == 0:
+        return 'N/A', missing
     return math.sqrt(_mse/(len(gt_stars)-len(missing))), missing
+
+def compute_decision_rmse(pred, gt):
+    """ Compute RMSE per decision rule
+    """
+    decis_map = {
+        'biz_avg': 'Business Avg',
+        'usr_avg': 'User Avg',
+        'cos': 'Cosine Sim',
+        'default': 'Default'
+    }
+    for k, dec in decis_map.items():
+        p_stars, gt_stars = format_dsets(
+            pred.filter(lambda x: x['decision'] == k), 
+            gt
+        )
+        rmse, missing_preds = compute_rmse(p_stars, gt_stars, log_pred=False)
+        log("*"*20, dec, "*"*20)
+        log("RMSE:", rmse)
+        log("Number of Predictions", len(p_stars))
 
 if __name__ == "__main__":
     log("Starting RMSE Evaluation ...")
@@ -113,3 +134,5 @@ if __name__ == "__main__":
     rmse, missing_preds = compute_rmse(p_stars, gt_stars)
     log("RMSE:", rmse)
     log("Missing predictions:", len(missing_preds))
+    if 'decision' in preds.take(1)[0]:
+        compute_decision_rmse(preds, gts)
