@@ -1,0 +1,14 @@
+{
+    "class": "ItemBasedCFModel",
+    "training_data": "../../data/project/train_review.json",
+    "mdl_file": "weights/itemCF.model",
+    "hp_params": {
+        "MIN_CORRATED": 2,
+        "N_MIN_HASHES": 3,
+        "K_NEIGHS": 10,
+        "METRIC": {
+            "active": "jacc",
+            "min_value": 0.001
+        }
+    }
+}

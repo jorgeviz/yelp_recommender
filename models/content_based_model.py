@@ -402,6 +402,7 @@ class ContentBasedModel(BaseModel):
             self.biz_prof, self.user_prof = dict(_biz_prof), dict(_usr_prof)
             self.biz_avg, self.user_avg = biz_avg, user_avg
         elif self.feat_type == 'sparse':
+            # save profiles
             def write_profile(x, pfile):
                 with open(pfile, 'a') as bf:
                     bf.write(json.dumps({x[0]: 
@@ -415,6 +416,7 @@ class ContentBasedModel(BaseModel):
             biz_prof.map(lambda x: write_profile(x, bfile)).count()
             ufile = self.cfg['mdl_file']+'.user_profile'
             user_prof.map(lambda x: write_profile(x, ufile)).count()
+            # save avgs
             with open(self.cfg['mdl_file']+'.avgs', 'w') as prf:
                 prf.write(json.dumps({
                     "business_avg": biz_avg,
@@ -525,7 +527,6 @@ class ContentBasedModel(BaseModel):
                 # No user info, return avg from business
                 return biz_avg[b_i]
             return 2.5 # return constant
-        debug()
         preds_ = test.map(lambda x: (x['user_id'], x['business_id']))\
                     .map(lambda x: (x[0], x[1], users.get(x[0], []), biz.get(x[1], [])) )\
                     .map(lambda x: (x[0], x[1], _sim(*x)) ).collect()
