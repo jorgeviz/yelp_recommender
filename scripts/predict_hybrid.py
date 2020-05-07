@@ -1,25 +1,31 @@
-""" Hybrid Recommendation using ALS and MLP to estimate score
-"""
+import sys
 import json
+import time
+import os
 import itertools
 from pathlib import Path
-import os
+
 import numpy as np
 import pandas as pd
-import time
+
 from scipy import sparse
 from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import train_test_split
+
 from pyspark.ml.evaluation import RegressionEvaluator
-from pyspark.ml.recommendation import ALS
+from pyspark.ml.recommendation import ALS, ALSModel
 from pyspark.sql import Row
 from pyspark import SparkContext, SparkConf, SQLContext
 
-st_time = time.time()
+st_time= time.time()
 MAX_PART_SIZE = 10 * (1024**2)
+
 os.environ['PYSPARK_PYTHON'] = 'python3'
 os.environ['PYSPARK_DRIVER_PYTHON'] = 'python3'
-train_file = '../../data/project/train_review.json' #'/home/ccc_v1_s_YppY_173479/asn131942_7/asn131945_1/asnlib.0/publicdata/train_review.json'
+
+train_file = '../../data/project/train_review.json'  # '/home/ccc_v1_s_YppY_173479/asn131942_7/asn131945_1/asnlib.0/publicdata/train_review.json'
+test_file = sys.argv[1]
+out_file = sys.argv[2]
 
 def read_file(sc, fpath):
     """ Read a file
@@ -46,13 +52,13 @@ def create_spark():
         .setMaster("local[*]")\
         .set("spark.executor.memory","4g")\
         .set("spark.driver.cores", "2")\
-        .set("spark.driver.memory", "2g")
+        .set("spark.driver.memory", "4g")
     sc = SparkContext(conf=conf)
     return sc
 
 sc = create_spark()
 spark =  SQLContext(sc)
-print("-"*50, '\n', "ALS CF Hybrid Recommender System\n", "-"*50)
+print("-"*50, '\n', "ALS CF Hybrid Recommender System [Prediction]\n", "-"*50)
 # Data
 lines = read_json(sc, train_file)
 parts = lines.map(lambda r: (r['user_id'], r['business_id'],r['stars']))
@@ -60,54 +66,56 @@ user_map = parts.map(lambda x: x[0]).distinct().zipWithIndex().collectAsMap()
 print("Found Users: ", len(user_map))
 biz_map = parts.map(lambda x: x[1]).distinct().zipWithIndex().collectAsMap()
 print("Found Businesses: ", len(biz_map))
-ratingsRDD = parts.map(lambda p: Row(
+
+# -- TEST
+# Evaluate the model by computing the RMSE on the test data
+test = read_json(sc, test_file)\
+        .map(lambda r: (r['user_id'], r['business_id']))
+# Update Mappings
+miss_biz = set(test.map(lambda x: x[1]).distinct().collect()) - set(biz_map)
+for m in miss_biz:
+    biz_map.update({m: biz_map.__len__()})
+miss_user = set(test.map(lambda x: x[0]).distinct().collect()) - set(user_map)
+for m in miss_user:
+    user_map.update({m: user_map.__len__()})
+testRDD = test.map(lambda p: Row(
                                 userId=int(user_map[p[0]]), 
-                                bizId=int(biz_map[p[1]]),
-                                rating=float(p[2])
+                                bizId=int(biz_map[p[1]])
                                 )
             )
-ratings = spark.createDataFrame(ratingsRDD).cache()
-# (training, val) = ratings.randomSplit([0.9, 0.1])
+testDF = spark.createDataFrame(testRDD).cache()
+print("Test")
+testDF.show(5)
+
+
+# decoding indexes 
+inv_idxs = {
+    "user": {v:k for k,v in user_map.items()},
+    "biz": {v:k for k,v in biz_map.items()}
+}
 
 #############################################
 # ALS
 #############################################
-# hyper parameters
-ranks_ = [50]
-regs_ = [0.2]
-niters = 1
+MODEL_NAME = 'als_double_reg0.2_rank50.model'
+als_model = ALSModel.load(MODEL_NAME)
+predictions = als_model.transform(testDF)
+predictions = predictions.fillna({'prediction': 2.5}).cache() # Cold Start
+print('Preds')
+predictions.show(3)
 
-for (rg, r) in itertools.product(regs_, ranks_):
-    # Build the recommendation model using ALS on the training data
-    als = ALS(maxIter=niters, rank=r, regParam=rg, userCol="userId", 
-                itemCol="bizId", ratingCol="rating", coldStartStrategy='nan')
-    model = als.fit(ratings)
-    predictions = model.transform(ratings)
-    predictions = predictions.fillna({'prediction': 2.5})
-    # evaluator = RegressionEvaluator(metricName="rmse", labelCol="rating", predictionCol="prediction")
-    # val_rmse = evaluator.evaluate(predictions)
-    # print('[VAL]','-'*50,'\nALS Rank:', r, 'Reg:', rg)
-    # print("[VAL] Root-mean-square error = " + str(val_rmse))
-    model.save(f'als_double_reg{rg}_rank{r}.model')
-    print("Saved ALS model!")
 #############################################
 # MLP
 #############################################
 avgs_files ={
     'UAVG': '../../data/project/user_avg.json', #/home/ccc_v1_s_YppY_173479/asn131942_7/asn131945_1/asnlib.0/publicdata/user_avg.json
-    'BAVG': '../../data/project/business_avg.json' #    'BAVG': '/home/ccc_v1_s_YppY_173479/asn131942_7/asn131945_1/asnlib.0/publicdata/business_avg.json'
+    'BAVG': '../../data/project/business_avg.json' #  '/home/ccc_v1_s_YppY_173479/asn131942_7/asn131945_1/asnlib.0/publicdata/business_avg.json'
 }
 
-def train_model(X, Y):
-    model = MLPRegressor(hidden_layer_sizes=(30,10,30), 
-                        activation='relu',
-                        alpha=0.005,
-                        learning_rate='adaptive',
-                        learning_rate_init=1e-2,
-                        max_iter=50, verbose=True)
-    model.fit(X,Y)
-    np.save("hybridMLP.model", model)
-    return model
+def load_model():
+    model = np.load('hybridMLP.model.npy', 
+            allow_pickle=True)
+    return model.item()
 
 def read_avgs(data, avgs):
     # averages
@@ -115,16 +123,24 @@ def read_avgs(data, avgs):
         with open(_af, 'r') as _f:
             acache = json.load(_f)
         _dmean = np.mean([ij for ij in acache.values()])
-        _col = 'userId' if _a.startswith('U') else 'bizId'
+        _col = 'user_id' if _a.startswith('U') else 'business_id'
         data[_a] = data[_col].apply(lambda v: acache.get(v, _dmean))
     return data
 
-# Formating features [TODO] -- inverse index for actual biz and user avgs
-feats = predictions.toPandas().rename(columns={'prediction': 'ALS'})
+mlp_model = load_model()
+feats = predictions.toPandas()
+feats['user_id'] = feats['userId'].apply(lambda x: inv_idxs['user'][x])
+feats['business_id'] = feats['bizId'].apply(lambda x: inv_idxs['biz'][x])
+feats.rename(columns={'prediction':'ALS'}, inplace=True)
 feats = read_avgs(feats, avgs_files)
 print("Features:\n", feats[['ALS', 'UAVG', 'BAVG']].head(5))
-model = train_model(feats[['ALS', 'UAVG', 'BAVG']], 
-                    feats['rating'])
-print("Saved MLP model!")
+feats['stars'] = mlp_model.predict(feats[['ALS', 'UAVG', 'BAVG']])
 
-print("Took:", time.time() - st_time)
+# Save
+with open(out_file, 'w') as f:
+    for j in feats[['user_id','business_id', 'stars']].to_dict(orient='records'):
+        f.write(json.dumps(j)+'\n')
+
+print("Done predictions!")
+sc.stop()
+print("Took: ", time.time() - st_time)
