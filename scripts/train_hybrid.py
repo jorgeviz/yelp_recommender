@@ -115,12 +115,19 @@ def read_avgs(data, avgs):
         with open(_af, 'r') as _f:
             acache = json.load(_f)
         _dmean = np.mean([ij for ij in acache.values()])
-        _col = 'userId' if _a.startswith('U') else 'bizId'
+        _col = 'user_id' if _a.startswith('U') else 'business_id'
         data[_a] = data[_col].apply(lambda v: acache.get(v, _dmean))
     return data
 
-# Formating features [TODO] -- inverse index for actual biz and user avgs
+# decoding indexes 
+inv_idxs = {
+    "user": {v:k for k,v in user_map.items()},
+    "biz": {v:k for k,v in biz_map.items()}
+}
+# Formating features 
 feats = predictions.toPandas().rename(columns={'prediction': 'ALS'})
+feats['user_id'] = feats['userId'].apply(lambda x: inv_idxs['user'][x])
+feats['business_id'] = feats['bizId'].apply(lambda x: inv_idxs['biz'][x])
 feats = read_avgs(feats, avgs_files)
 print("Features:\n", feats[['ALS', 'UAVG', 'BAVG']].head(5))
 model = train_model(feats[['ALS', 'UAVG', 'BAVG']], 
