@@ -344,9 +344,9 @@ class ItemBasedCFModel(BaseModel):
         """
         biz_test = set(test.map(lambda x: x['business_id']).distinct().collect())
         _inv_umap = {v:k for k,v in self.user_map.items()}
+        # review if need to filter .rdd.map(lambda r: (r.biz, r.features)).filter(lambda r: r[0] in biz_test)\
         _usr_rates = self.biz_vectors\
                 .rdd.map(lambda r: (r.biz, r.features))\
-                .filter(lambda r: r[0] in biz_test)\
                 .mapValues(lambda fts: {_inv_umap[ix]:iv \
                                 for ix, iv in zip(fts.indices, fts.values)})\
                 .flatMap(lambda e: [(_u, (e[0], _r)) for _u,_r in e[1].items()])\
