@@ -519,7 +519,7 @@ class ContentBasedModel(BaseModel):
                 elif _decision == 'geometric':
                     return (_cos)*user_avg[u_i]  + (1-_cos)*biz_avg[b_i]
                 else:  # constant
-                    return 5*(1.-_cos)
+                    return 5*(_cos)
             # similarity for cold start, average of the other
             if u:
                 # No business info, return avg from user

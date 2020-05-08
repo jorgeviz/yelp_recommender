@@ -167,13 +167,12 @@ class ContentBasedExtendedModel(ContentBasedModel):
         _user_prof = data.map(lambda x: (x[1], x[0])).groupByKey()\
                         .mapValues(lambda bs: [_biz_prof[b] for b in bs])\
                         .mapValues(average_vects).collectAsMap()
-        debug()
         del self.tfidf_user_prof
         self.biz_prof = _biz_prof
         self.user_prof = _user_prof
-        self.save(self.top_terms, self.top_idx, self.biz_prof, self.user_prof, self.biz_avg, self.user_avg)
+        self._save(self.top_terms, self.top_idx, self.biz_prof, self.user_prof, self.biz_avg, self.user_avg)
     
-    def save(self, top_terms, top_idx, biz_prof, user_prof, biz_avg, user_avg):
+    def _save(self, top_terms, top_idx, biz_prof, user_prof, biz_avg, user_avg):
         """ Save Model values
         """
         def _serialize(v):
@@ -218,9 +217,7 @@ class ContentBasedExtendedModel(ContentBasedModel):
             self.cfg['mdl_file'] = self.__cfg['mdl_file']
         else:
             # Train TFIDF module
-            debug()
             parsed = super().train(data)
-            debug()
         # Rename profiles TFIDF
         self.tfidf_biz_prof = self.biz_prof
         self.tfidf_user_prof = self.user_prof
@@ -246,7 +243,7 @@ class ContentBasedExtendedModel(ContentBasedModel):
             _is_sparse =  isinstance(k, SparseVector)
             break
         if not _is_sparse:
-            self.biz_prof = {k: SparseVector(*v) for k,v in self.biz_prof}
-            self.user_prof = {k: SparseVector(*v) for k,v in self.user_prof}
+            self.biz_prof = {k: SparseVector(*v) for k,v in self.biz_prof.items()}
+            self.user_prof = {k: SparseVector(*v) for k,v in self.user_prof.items()}
         super().predict(test, outfile)
         self.feat_type = self.cfg['hp_params']['FEATURES']
