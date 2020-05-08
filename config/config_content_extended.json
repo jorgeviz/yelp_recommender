@@ -1,0 +1,18 @@
+{
+    "class": "ContentBasedExtendedModel",
+    "training_data": "../../data/project/train_review.json",
+    "mdl_file": "weights/contentTFIDFext.model",
+    "hp_params": {
+        "TOP_TFIDF": 200,
+        "CACHE_TFIDF": "weights/contentTFIDF200.model",
+        "RARE_WORDS_PERC": 0.0001,
+        "FEATURES": "continuous",
+        "DECISION_RULE": {
+            "active": "geometric",
+            "params": {
+                "slope": 0.7,
+                "bias": 0.5
+            }
+        }
+    }
+}

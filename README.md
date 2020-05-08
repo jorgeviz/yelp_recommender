@@ -20,4 +20,4 @@ $$\beta_{u,b} = Cos(V_u, V_b)$$
 
 _Eq. 1. Geometric Weighted mean for Rating estimation using respective profile vectors ($V_u, V_b$)_
 
-For implementation details: [Github Yelp recomender](https:/github.com/jorgeviz/yelp_recommender) 
+For implementation details: [Github Yelp recommender](https:/github.com/jorgeviz/yelp_recommender) 

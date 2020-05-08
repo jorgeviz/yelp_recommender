@@ -3,3 +3,9 @@
 __pycache__/
 *.model
 *.preds
+*.npy
+*.avgs
+*.weights
+*.features
+*.profiles
+*.*_profile
