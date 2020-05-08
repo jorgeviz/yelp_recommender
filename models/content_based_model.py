@@ -443,6 +443,7 @@ class ContentBasedModel(BaseModel):
         biz_prof, user_prof = self.build_profiles(parsed, tfidf, top_terms, top_idx, self.feat_type)
         self.save(top_terms, top_idx, biz_prof, user_prof, biz_avg, user_avg)
         log(f"Model correctly saved at {self.cfg['mdl_file']}")
+        return parsed
 
     def load_model(self):
         """ Load model from config defined model file
@@ -535,45 +536,6 @@ class ContentBasedModel(BaseModel):
                 of.write(json.dumps({
                     "user_id": pv[0], "business_id": pv[1],
                     "stars": pv[2]
-                })+"\n")
-    
-    def predict_debug(self, test, outfile):
-        """ Prediction method [DEBUG]
-
-            Params:
-            ----
-            test: pyspark.rdd
-                Test Review JSON RDD 
-                Format: [
-                    {'business_id':x, 'user_id':x, 'text':x}, 
-                    ...
-                ]
-            outfile: str
-                Path to output file
-        """
-        users, biz = self.user_prof, self.biz_prof
-        user_avg, biz_avg = self.user_avg, self.biz_avg
-        _alpha, _beta = self.alpha, self.beta
-        def _sim(u_i, b_i, u, b):
-            if (u and b):
-                return user_avg[u_i] + _alpha*(cosine([u],[b]).item()-_beta), 'cos'
-            # similarity for cold start, average of the other
-            if u:
-                # No business info, return avg from user
-                return user_avg[u_i], 'usr_avg'
-            elif b:
-                # No user info, return avg from business
-                return biz_avg[b_i], 'biz_avg'
-            return 2.5, 'default' # return constant
-        
-        preds_ = test.map(lambda x: (x['user_id'], x['business_id']))\
-                    .map(lambda x: (x[0], x[1], users.get(x[0], []), biz.get(x[1], [])) )\
-                    .map(lambda x: (x[0], x[1], _sim(*x)) ).collect()
-        with open(outfile, 'w') as of:
-            for pv in preds_:
-                of.write(json.dumps({
-                    "user_id": pv[0], "business_id": pv[1],
-                    "stars": pv[2][0], "decision": pv[2][1]
                 })+"\n")
 
 
