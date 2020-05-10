@@ -1,7 +1,5 @@
 # Yelp Recommender system 
 
-## --  Jorge Vizcayno García  (INF553)
-
 ```
 Hybrid recommender implementation for a subset of the Yelp open dataset in California, US. 
 ```
