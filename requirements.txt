@@ -15,7 +15,7 @@ click==7.1.1
 cloudpickle==1.3.0
 conda==4.8.2
 conda-package-handling==1.6.0
-cryptography==2.8
+cryptography==3.2
 cycler==0.10.0
 Cython==0.29.16
 cytoolz==0.10.1
